@@ -20,6 +20,7 @@ import sgtk
 from sgtk import TankError
 # mari
 import mari
+import yaml
 
 HookBaseClass = sgtk.get_hook_baseclass()
 
@@ -91,6 +92,12 @@ class CustomMariActions(HookBaseClass):
                                      "caption": "Add to Image Manager",
                                      "description": "This will add the image to project's image manager."})
 
+        if 'camera_import' in actions and 'camera_import' not in existing_action_names:
+            action_instances.append({"name": "camera_import",
+                                     "params": None,
+                                     "caption": "Import Camera",
+                                     "description": "This will import camera as a projector."})
+
         return action_instances
 
     def execute_action(self, name, params, sg_publish_data):
@@ -119,6 +126,8 @@ class CustomMariActions(HookBaseClass):
             self._create_layer_with_image(path, sg_publish_data)
         elif name == "add_to_image_manager":
             self._add_to_image_manager(path, sg_publish_data)
+        elif name == "camera_import":
+            self._import_camera(path, sg_publish_data)
 
     ##############################################################################################################
     # helper methods which can be subclassed in custom hooks to fine tune the behaviour of things
@@ -281,6 +290,40 @@ class CustomMariActions(HookBaseClass):
             self.parent.log_info("Added %s to image manager!" % path)
         else:
             self.parent.log_warning("There are no frames in %s image!" % path)
+
+    def _import_camera(self, path, sg_publish_data):
+        template = None
+        try:
+            template = self.parent.sgtk.template_from_path(path)
+        except sgtk.TankError:
+            pass
+        if not template:
+            return None
+
+        # get the fields
+        fields = template.get_fields(path)
+
+        # get metadata template
+        metadata_template_exp = "{env_name}_publish_metadata"
+        metadata_template_name = self.parent.resolve_setting_expression(metadata_template_exp)
+        print 'metadata_template_name', metadata_template_name
+        metadata_template = self.parent.sgtk.templates.get(metadata_template_name)
+        print 'metadata_template', metadata_template
+
+        if not metadata_template:
+            self.parent.logger.warning("Unable to find metadata template: {}".format(metadata_template_name))
+            return None
+
+        try:
+            metadata_path = metadata_template.apply_fields(fields)
+            print metadata_path
+        except sgtk.TankError:
+            self.parent.logger.warning("Unable to apply fields: {}"
+                                       "\nto metadata template: {}".format(fields, metadata_template_name))
+
+
+
+
 
 
 
