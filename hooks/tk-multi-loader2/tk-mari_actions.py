@@ -20,7 +20,7 @@ import sgtk
 from sgtk import TankError
 # mari
 import mari
-import yaml
+import yaml, PySide2
 
 HookBaseClass = sgtk.get_hook_baseclass()
 
@@ -293,6 +293,9 @@ class CustomMariActions(HookBaseClass):
 
     def _import_camera(self, path, sg_publish_data):
         template = None
+        metadata_path = None
+        missing_cam = []
+        missing_img_path = []
         try:
             template = self.parent.sgtk.template_from_path(path)
         except sgtk.TankError:
@@ -306,9 +309,7 @@ class CustomMariActions(HookBaseClass):
         # get metadata template
         metadata_template_exp = "{env_name}_publish_metadata"
         metadata_template_name = self.parent.resolve_setting_expression(metadata_template_exp)
-        print 'metadata_template_name', metadata_template_name
         metadata_template = self.parent.sgtk.templates.get(metadata_template_name)
-        print 'metadata_template', metadata_template
 
         if not metadata_template:
             self.parent.logger.warning("Unable to find metadata template: {}".format(metadata_template_name))
@@ -316,10 +317,39 @@ class CustomMariActions(HookBaseClass):
 
         try:
             metadata_path = metadata_template.apply_fields(fields)
-            print metadata_path
         except sgtk.TankError:
             self.parent.logger.warning("Unable to apply fields: {}"
                                        "\nto metadata template: {}".format(fields, metadata_template_name))
+            return None
+        with open(metadata_path, 'r') as stream:
+            data_loaded = yaml.load(stream)
+        for cam, img in data_loaded.iteritems():
+            if mari.projectors.find(cam):
+                mari.projectors.remove(cam)
+        projectors = mari.projectors.load(path)
+        for cam in projectors:
+            cam_name = cam.name()
+            camera = data_loaded.get(cam_name, None)
+            if camera:
+                image_path = data_loaded.get(cam_name).get('ref_image', None).get('file_path', None)
+                if os.path.exists(image_path):
+                    cam.setImportPath(image_path)
+                    cam.project()
+                else:
+                    missing_img_path.append(cam_name)
+
+            else:
+                missing_cam.append(cam_name)
+
+        if missing_cam:
+            self.warning_dialogue('Camera Missing', 'Camera not found in metadata - {}'.format(str(missing_cam)))
+
+        if missing_img_path:
+            self.warning_dialogue('Image Missing', 'Image path for camera does not exists - {}'.format(str(missing_img_path)))
+
+    def warning_dialogue(self, title, msg):
+        message = PySide2.QtWidgets.QMessageBox.warning(None, title, msg,
+                                                        buttons=PySide2.QtWidgets.QMessageBox.Ok)
 
 
 
