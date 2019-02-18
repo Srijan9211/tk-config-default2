@@ -15,12 +15,13 @@ Hook that loads defines all the available actions, broken down by publish type.
 import os
 import re
 import glob
+import yaml
 # sgtk
 import sgtk
 from sgtk import TankError
 # mari
 import mari
-import yaml, PySide2
+from Qt import QtWidgets, QtCore
 
 HookBaseClass = sgtk.get_hook_baseclass()
 
@@ -92,10 +93,10 @@ class CustomMariActions(HookBaseClass):
                                      "caption": "Add to Image Manager",
                                      "description": "This will add the image to project's image manager."})
 
-        if 'camera_import' in actions and 'camera_import' not in existing_action_names:
-            action_instances.append({"name": "camera_import",
+        if 'ref_camera_import' in actions and 'ref_camera_import' not in existing_action_names:
+            action_instances.append({"name": "ref_camera_import",
                                      "params": None,
-                                     "caption": "Import Camera",
+                                     "caption": "Import Reference Camera",
                                      "description": "This will import camera as a projector."})
 
         return action_instances
@@ -126,8 +127,8 @@ class CustomMariActions(HookBaseClass):
             self._create_layer_with_image(path, sg_publish_data)
         elif name == "add_to_image_manager":
             self._add_to_image_manager(path, sg_publish_data)
-        elif name == "camera_import":
-            self._import_camera(path, sg_publish_data)
+        elif name == "ref_camera_import":
+            self._import_ref_camera(path, sg_publish_data)
 
     ##############################################################################################################
     # helper methods which can be subclassed in custom hooks to fine tune the behaviour of things
@@ -291,11 +292,13 @@ class CustomMariActions(HookBaseClass):
         else:
             self.parent.log_warning("There are no frames in %s image!" % path)
 
-    def _import_camera(self, path, sg_publish_data):
+    def _import_ref_camera(self, path, sg_publish_data):
         template = None
         metadata_path = None
+        error_msg = ''
         missing_cam = []
         missing_img_path = []
+        ref_image_missing = []
         try:
             template = self.parent.sgtk.template_from_path(path)
         except sgtk.TankError:
@@ -321,35 +324,52 @@ class CustomMariActions(HookBaseClass):
             self.parent.logger.warning("Unable to apply fields: {}"
                                        "\nto metadata template: {}".format(fields, metadata_template_name))
             return None
-        with open(metadata_path, 'r') as stream:
-            data_loaded = yaml.load(stream)
-        for cam, img in data_loaded.iteritems():
-            if mari.projectors.find(cam):
-                mari.projectors.remove(cam)
-        projectors = mari.projectors.load(path)
-        for cam in projectors:
-            cam_name = cam.name()
-            camera = data_loaded.get(cam_name, None)
-            if camera:
-                image_path = data_loaded.get(cam_name).get('ref_image', None).get('file_path', None)
-                if os.path.exists(image_path):
-                    cam.setImportPath(image_path)
-                    cam.project()
+        try:
+            with open(metadata_path, 'r') as stream:
+                data_loaded = yaml.load(stream)
+        except:
+            self.warning_dialogue('WARNING', 'Unable to load metadata File')
+
+        if data_loaded:
+            # Checking for object in Metadata file and removing if object exists in the scene
+            for cam, img in data_loaded.iteritems():
+                if mari.projectors.find(cam):
+                    mari.projectors.remove(cam)
+            # Loading Projectors(camera)
+            projectors = mari.projectors.load(path)
+            for cam in projectors:
+                cam_name = cam.name()
+                camera = data_loaded.get(cam_name, None)
+                if camera:
+                    ref_image_attribute = camera.get('ref_image', None)
+                    if ref_image_attribute:
+                        image_path = ref_image_attribute.get('file_path', None)
+                        if image_path and os.path.exists(image_path):
+                            cam.setImportPath(image_path)
+                            cam.project()
+                        else:
+                            missing_img_path.append(cam_name)
+                    else:
+                        ref_image_missing.append(cam_name)
+
                 else:
-                    missing_img_path.append(cam_name)
+                    missing_cam.append(cam_name)
+        else:
+            self.warning_dialogue('WARNING', 'Metadata file is empty')
 
-            else:
-                missing_cam.append(cam_name)
-
+        if ref_image_missing:
+            error_msg += 'Camera not found in metadata - {} \n'.format(str(ref_image_missing))
         if missing_cam:
-            self.warning_dialogue('Camera Missing', 'Camera not found in metadata - {}'.format(str(missing_cam)))
+            error_msg += 'Camera not found in metadata - {} \n'.format(str(missing_cam))
 
         if missing_img_path:
-            self.warning_dialogue('Image Missing', 'Image path for camera does not exists - {}'.format(str(missing_img_path)))
+            error_msg += 'Image path for camera does not exists - {} \n'.format(str(missing_img_path))
+        if error_msg:
+            self.warning_dialogue('Object Missing', error_msg)
 
     def warning_dialogue(self, title, msg):
-        message = PySide2.QtWidgets.QMessageBox.warning(None, title, msg,
-                                                        buttons=PySide2.QtWidgets.QMessageBox.Ok)
+        message = QtWidgets.QMessageBox.warning(None, title, msg,
+                                                        buttons=QtWidgets.QMessageBox.Ok)
 
 
 
