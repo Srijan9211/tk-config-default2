@@ -295,6 +295,7 @@ class CustomMariActions(HookBaseClass):
     def _import_ref_camera(self, path, sg_publish_data):
         template = None
         metadata_path = None
+        data_loaded = None
         error_msg = ''
         missing_cam = []
         missing_img_path = []
